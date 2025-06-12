@@ -1,0 +1,225 @@
+---
+title: "Creation_of_Van_der_Wijst_SM"
+output: html_notebook
+---
+This document shows the process followed to create the Singature Matrix Van der Wijst
+
+
+# Libraries needed
+```{r}
+library(tidyr)
+library(dplyr)
+library(glue)
+library(purrr)
+library(tibble)
+library(dplyr)
+library(Seurat)
+library(tidyverse)
+library(RColorBrewer)
+library(ggrepel)
+library(ggplot2)
+library(scales)
+library(biomaRt)
+```
+
+  
+Creating a function to process each lane. It will download and set all the important information from the data. 
+```{r}
+process_lane <- function(lane_number) {
+  
+  path_matrix <- glue(".../lane_{lane_number}/matrix.mtx")
+  path_barcodes <- glue(".../lane_{lane_number}/barcodes.tsv")
+  path_genes <- glue(".../lane_{lane_number}/genes.tsv")
+ 
+  lane_Matrix_index <- read.csv(path_matrix, sep = " ", skip = 2, header = TRUE)
+  lane_Barcodes <- read.csv(path_barcodes, sep = " ", header = FALSE)
+  lane_genes <- read.csv(path_genes, sep = "\t", header = FALSE)
+  
+  colnames(lane_Matrix_index)[1] <- "gene_index"
+  colnames(lane_Matrix_index)[2] <- "barcode_index"
+  colnames(lane_Matrix_index)[3] <- "counts"
+  colnames(lane_Barcodes)[1] <- "barcode"
+  colnames(lane_genes)[1] <- "gene_ID"
+  colnames(lane_genes)[2] <- "gene.name"
+  
+  lane_Barcodes$barcode <- sub("-1", glue("-{lane_number}"), lane_Barcodes$barcode)
+  
+  barcodes_to_cells$barcode <<- sub(glue("_lane{lane_number}"), glue("-{lane_number}"), barcodes_to_cells$barcode)
+  lane_Barcodes <- merge(lane_Barcodes, barcodes_to_cells, by = "barcode", all.x = TRUE)
+  
+  lane_Matrix <- lane_Matrix_index
+  lane_Matrix$gene.ID <- lane_genes[as.character(lane_Matrix$gene_index), "gene_ID"]
+  lane_Matrix$barcodes <- lane_Barcodes[as.character(lane_Matrix$barcode_index), "barcode"]
+  lane_Matrix$gene_index <- NULL
+  lane_Matrix$barcode_index <- NULL
+  
+  lane_Matrix <- pivot_wider(lane_Matrix, names_from = barcodes, values_from = counts)
+  
+  lane_Matrix[is.na(lane_Matrix)] <- 0
+  
+  missing_genes <- length(setdiff(unique(lane_genes$gene_ID), unique(lane_Matrix$gene.ID)))
+  print(glue("Number of missing genes in lane {lane_number}: {missing_genes}"))
+  
+  check <- nrow(lane_Matrix_index) == sum(lane_Matrix[, -1] != 0)
+  print(glue("Result:{check}, meaning matrix for lane {lane_number} is correctly transposed"))
+  
+  assign(glue("lane{lane_number}_Matrix_index"), lane_Matrix_index, envir = .GlobalEnv)
+  assign(glue("lane{lane_number}_Barcodes"), lane_Barcodes, envir = .GlobalEnv)
+  assign(glue("lane{lane_number}_genes"), lane_genes, envir = .GlobalEnv)
+  assign(glue("lane{lane_number}_Matrix"), lane_Matrix, envir = .GlobalEnv)
+  
+}
+```
+
+
+```{r}
+# Running the function for all lanes
+process_lane(1) 
+process_lane(2)
+process_lane(3)
+process_lane(4)
+
+# Combining lanes into single Matrix
+databases <- list(lane1_Matrix, lane2_Matrix, lane3_Matrix, lane4_Matrix)
+Data <- Reduce(function(x, y) merge(x, y, by = "gene.ID", all = TRUE), databases)
+
+# Convert Gene.ID to gene.name
+Data <- Data %>%
+  left_join(Biomart %>%
+              select(Gene.stable.ID, Gene.name) %>%
+              distinct(Gene.stable.ID, .keep_all = TRUE),
+            by = c("gene.ID"= "Gene.stable.ID"))
+
+Data <- Data[!is.na(Data$Gene.name),] 
+Data <- Data[Data$Gene.name != "", ] 
+Data<- as.data.frame(Data)
+Data <- Data[Data$Gene.name != "GOLGA8M", ]
+rownames(Data) <- Data$Gene.name
+Data$gene.ID <- NULL
+Data$Gene.name <- NULL
+
+# Preparing metadata
+all_barcodes <- bind_rows(lane1_Barcodes, lane2_Barcodes, lane3_Barcodes,
+                          lane4_Barcodes)
+
+all_barcodes <- all_barcodes %>%
+  mutate(lane = as.integer(sub(".*-(\\d+)$", "\\1", barcode)))
+
+metadata <- all_barcodes %>%
+  filter(barcode %in% colnames(Data)) %>%
+  column_to_rownames("barcode")
+metadata[is.na(metadata)] <- "other"
+Data[is.na(Data)] <- 0
+metadata$cell_lane <- paste(metadata$cell_type, metadata$lane, sep= "-")
+
+# Seurat object and QC
+seurat_obj <- CreateSeuratObject(counts = Data)
+seurat_obj <- AddMetaData(seurat_obj, metadata = metadata)
+seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^MT-")
+
+# Assigning the grey color to the cell types "other" for its visualization in the plot
+cell_types <- unique(lane1_Matrix_S$cell_type)
+colors <- hue_pal()(length(cell_types))
+names(colors) <- cell_types
+colors["other"] <- "grey"
+
+# QC Plots
+VlnPlot(seurat_obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3) 
+FeatureScatter(seurat_obj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA", group.by = "cell_type") +
+  geom_hline(yintercept = c(500,2500), linetype = "dashed", color = "red") +
+  scale_color_manual(values = colors)
+FeatureScatter(seurat_obj, feature1 = "nCount_RNA", feature2 = "percent.mt", group.by = "cell_type") +
+  geom_hline(yintercept = c(5), linetype = "dashed", color = "red") +
+  scale_color_manual(values = colors)
+
+# Filtering cells and normalizing
+seurat_obj <- subset(seurat_obj, subset = nFeature_RNA > 500 & nFeature_RNA < 2500 & percent.mt < 5) 
+seurat_obj <- SCTransform(seurat_obj, vars.to.regress = "percent.mt", verbose = FALSE)
+
+# Dimension reduction and clustering
+seurat_obj <- RunPCA(seurat_obj, features = VariableFeatures(object = seurat_obj)) 
+DimPlot(seurat_obj , reduction = "pca", group.by = "cell_type")  type
+ElbowPlot(seurat_obj) #Choosing dim 8
+
+seurat_obj <- FindNeighbors(seurat_obj, dims = 1:8)
+seurat_obj <- FindClusters(seurat_obj, resolution = 0.5)
+seurat_obj <- RunUMAP(seurat_obj, dims = 1:8)
+DimPlot(seurat_obj, reduction = "umap", label = TRUE)
+
+# Pseudo bulk creation
+pseudo_bulk <- AggregateExpression(seurat_obj, group.by = "cell_lane", assays = "RNA",  slot = "counts",return.seurat = FALSE)
+Idents(seurat_obj) <- "cell_type"
+
+# Get top markers
+markers <- FindAllMarkers(seurat_obj)
+new_top50 <- markers %>% group_by(cluster) %>% slice_max(order_by = avg_log2FC, n = 50) %>% pull(gene) %>% unique()
+
+# Subset pseudo bulk matrix
+pseudobulk <- pseudo_bulk$RNA 
+pseudobulk <- pseudobulk[new_top50, ]
+pseudobulk <- as.data.frame(pseudobulk)
+pseudobulk <- pseudobulk[, colnames(pseudobulk) != "other-1"]
+
+# In case the SM is wanted with counts and not TPMs
+write.csv(pseudobulk, "Van_der_Wijst_SM_counts.csv", row.names = TRUE)
+
+# TPM Conversion
+missing_genes <- setdiff(rownames(pseudobulk), rownames(FinalResult))
+
+# Use biomaRt to get canonical transcript info
+Biomart_moreinfo <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+canonical_transcripts <- getBM(attributes = c( "ensembl_gene_id", "transcript_length", "ensembl_transcript_id", "hgnc_symbol", "transcript_is_canonical"),
+                               filters = "hgnc_symbol", 
+                               values = missing_genes,
+                               mart = Biomart_moreinfo)
+canonical_transcripts <- canonical_transcripts %>%
+  filter(transcript_is_canonical == 1)
+
+ # Removing duplicates that were from other versions of the gene I want
+canonical_transcripts_unique <- canonical_transcripts[!duplicated(canonical_transcripts$hgnc_symbol), ]
+# Are all the genes anotated? Yes
+setdiff(missing_genes, canonical_transcripts_unique$hgnc_symbol) 
+
+# Preparing MANE information in order to use it to calculate the TPMs of the SM
+MANE <- read.csv("MANE.csv")
+MANE <- MANE %>%
+  left_join(
+    select(Biomart, Transcript.stable.ID, Gene.name),
+    by = c("Transcript_ID" = "Transcript.stable.ID")
+  )
+
+canonical_transcripts_unique <- canonical_transcripts_unique[, -5]
+colnames(canonical_transcripts_unique) <- c("Gene_ID", "MANE_length", "Transcript_ID","Gene.name")
+
+MANE <- rbind(MANE, canonical_transcripts_unique)
+
+# Calculating TPMs
+FinalResult <- TPM_calculator2(pseudobulk, MANE) 
+
+## Formating for CIBERSORTx
+names <- colnames(FinalResult)
+names <- gsub("\\+", "", names)            
+names <- gsub("\\(", "", names)           
+names <- gsub("\\)", "", names)
+names <- gsub(" ", "_", names)            
+names <- gsub("-", "_", names)            
+names <- gsub("[^A-Za-z0-9_]", "", names)  
+colnames(FinalResult) <- names
+
+FinalResult <-rownames_to_column(FinalResult,var="GeneSymbol")
+FinalResult <- rbind(colnames(FinalResult), FinalResult)
+colnames(FinalResult)<-NULL
+
+# Do an extra change, as the samples are from aggregate, the names must be the same name, it can't be any number distinguishing the replicates
+names <-FinalResult[1,]
+names<- gsub("_[0-9]+$", "", names)
+FinalResult[1,] <- names
+
+#Deleting Megakaryocytes as they won't be included
+FinalResult_M <- FinalResult[, which(!grepl("Megakaryocyte", as.character(FinalResult[1, ])))]
+
+write.table(FinalResult_M, "Van_der_Wijst_SM.txt", sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+
+```
+
+

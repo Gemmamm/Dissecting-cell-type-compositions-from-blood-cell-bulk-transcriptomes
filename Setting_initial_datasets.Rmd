@@ -1,0 +1,451 @@
+---
+title: "Setting_initial_datasets"
+output: html_notebook
+---
+The aim of this document is to outline the steps followed to process and prepare the transcriptomic data used in the study. Specifically, it describes how each selected study was independently processed to generate individual datasets, which were later merged into a unified dataset named `Transcriptome_dataset`.
+
+Each dataset was initially processed separately and saved as an individual `.csv` file. These files were then used as input for downstream analyses.
+
+---
+
+Libraries needed
+```{r}
+library(dplyr)
+library(purrr)
+```
+
+
+## Database 1
+
+**Brief description:**  
+*This dataset originates from the study “Diagnosis of multisystem inflammatory syndrome in children (MIS-C) by a whole-blood transcriptional signature” and includes* **5 healthy samples**, *which will be extracted and used to create `database_1`.*
+
+```{r}
+# Load expression values (TPM) from the raw file, skipping information rows
+rawdatabase_1 <-read.csv("Database1_Expression_values_across_all_genes_TPM.tsv", header= TRUE, sep="\t",skip=4)
+
+# Load experiment design file (sample metadata)
+database_1_experimentdesign <-read.csv("Database1_Experiment_Design.tsv", header= TRUE, sep="\t")
+
+# Preview of the data loaded
+print(head(rawdatabase_1,2))
+print(head(database_1_experimentdesign,2)) 
+
+# Creating database_1 with gene IDs as row names, and renaming the single sample column for clarity.
+database_1 <- data.frame("TPM_TranscriptsPerMillion_Database1"= rawdatabase_1$normal, row.names =rawdatabase_1$Gene.ID )
+```
+
+*How Final database 1 looks:*
+```{r}
+print(head(database_1,2))
+```
+
+
+## Database 2
+
+**Brief description:**
+*This dataset originates from the study “RNA-seq of peripheral blood from healthy controls and established relapsing-remitting multiple sclerosis patients” and includes* **8 healthy samples**, *which will be extracted and used to create `database_2`.*
+
+
+```{r}
+# Load raw counts and experiment design files for Database 2
+rawdatabase_2 <- read.csv("Database2_All_raw_counts_for_the_experiment.tsv",header=TRUE,sep="\t")
+database_2_experimentdesign <-read.csv("Database2_Experiment_Design.tsv", header= TRUE, sep="\t")
+
+# Preview of the data loaded
+print(head(rawdatabase_2,2))
+print(head(database_2_experimentdesign,2))
+
+# Identifyin healthy samples
+database2_individuals <- c() 
+for (a in 1:nrow(database_2_experimentdesign)) {
+  if (grepl("normal", database_2_experimentdesign[a, "Sample.Characteristic.disease."])) {
+    database2_individuals <- c(database2_individuals, database_2_experimentdesign[a, "Run"])
+  }
+}
+print(database2_individuals)
+```
+Using the list created,  their information is extracted from the rawdatabase_2 to create database_2:
+```{r}
+database_2 <- data.frame(Gene_ID=rawdatabase_2$Gene.ID)
+
+for (a in 1:length(database2_individuals)) { 
+  individual2 <- database2_individuals[a]
+  matching_col2 <- which(colnames(rawdatabase_2) == individual2) 
+  
+   if (length(matching_col2) > 0) {  
+    col_name <- paste0("Raw_Counts_", individual2,"_Database2")  
+    database_2[[col_name]] <- rawdatabase_2[, matching_col2] 
+  }
+}
+
+# Setting the Gene_ID column as row names:
+rownames(database_2) <- database_2$Gene_ID
+database_2 <- database_2[,-1]
+print(head(database_2,2))
+```
+
+
+
+
+
+## Database 3
+
+**Brief description:**
+*This dataset originates from the study “RNA-seq of whole blood from 105 patients with brucellosis, 17 patients with Leishmaniasis and healthycontrols.”, includes* **47 healthy samples**, *which will be extracted and used to create `database_3`.*
+
+
+```{r}
+# Load raw counts and experiment design files for Database 3
+rawdatabase_3 <-read.csv("Database3_All_raw_counts_for_the_experiment.tsv", header= TRUE, sep="\t")
+database_3_experimentdesign <-read.csv("Database3_Experiment_Design.tsv", header= TRUE, sep="\t")
+
+# Preview of the data loaded
+print(head(rawdatabase_3,2))
+print(head(database_3_experimentdesign,2))
+
+# Identifying healthy samples
+database3_individuals <- c() 
+
+for (a in 1:nrow(database_3_experimentdesign)) {
+  if (grepl("normal", database_3_experimentdesign[a, "Sample.Characteristic.disease."])) {
+    database3_individuals <- c(database3_individuals, database_3_experimentdesign[a, "Run"])
+  }
+}
+print(database3_individuals)
+
+# Creating database_3 with the information columns
+database_3 <- data.frame(Gene_ID=rawdatabase_3$Gene.ID,Gene_Name=rawdatabase_3$Gene.Name)
+
+for (a in 1:length(database3_individuals)) { 
+  individual3 <- database3_individuals[a]
+  matching_col3 <- which(colnames(rawdatabase_3) == individual3) 
+  
+   if (length(matching_col3) > 0) {  
+    col_name3 <- paste0(individual3,"_Database3")  
+    database_3[[col_name3]] <- rawdatabase_3[, matching_col3]  
+  }
+}
+
+# Setting the Gene IDs as row names for later calculating TPMs
+rownames(database_3) <- database_3$Gene_ID
+print(head(database_2,2))
+database_3 <- database_3[, -which(colnames(database_3) == "Gene_ID")]
+database_3 <- database_3[, -which(colnames(database_3) == "Gene_Name")]
+```
+
+
+
+## Database 4
+
+**Brief description:**
+*Sequencing of transcriptomes using massive analysis of cDNA ends (MACE) of whole blood samples from 25 healthy volunteers and 47 PDAC patients to identify mRNAs potentially allowing for discrimination between both groups.”, includes* **25 healthy samples**, *which will be extracted and used to create `database_4`.*
+
+
+```{r}
+# Load raw counts and experiment design files for Database 4
+rawdatabase_4 <- read.csv("Database4_All_raw_counts_for_this_experiment.tsv",header=TRUE,sep="\t")
+database_4_experimentdesign <-read.csv("Database4_Experiment_design.tsv", header= TRUE, sep="\t")
+
+# Preview of the data loaded
+print(head(rawdatabase_4,2))
+print(head(database_4_experimentdesign,2))
+
+# Identifying healthy samples
+database4_individuals <- c() 
+
+for (a in 1:nrow(database_4_experimentdesign)) {
+  condition <- database_4_experimentdesign[a, "Sample.Characteristic.disease."]
+  if (condition == "normal") {
+    database4_individuals <- c(database4_individuals, database_4_experimentdesign[a, "Run"])
+  }
+}
+print(database4_individuals)
+
+#Creating database_4 with the information columns.
+database_4 <- data.frame(Gene_ID=rawdatabase_4$Gene.ID,Gene_Name=rawdatabase_4$Gene.Name)
+
+for (a in 1:length(database4_individuals)) { 
+  individual4 <- database4_individuals[a]
+  matching_col4 <- which(colnames(rawdatabase_4) == individual4) 
+   if (length(matching_col4) > 0) {  
+    col_name4 <- paste0( individual4,"_Database4")  
+    database_4[[col_name4]] <- rawdatabase_4[, matching_col4]  
+  }
+}
+
+# Setting the Gene IDs as row names for later calculating TPMs
+rownames(database_4) <- database_4$Gene_ID
+database_4 <- database_4[, -which(colnames(database_4) == "Gene_ID")]
+database_4 <- database_4[, -which(colnames(database_4) == "Gene_Name")]
+
+```
+
+
+## Database 5
+
+**Brief description:**
+*This database is based on the file corresponding to the Gene TPMs by tissue, specifically by whole blood from the GTEx portal and its Analysis V10.* 
+*As said in the same portal, the data is obtained from 54 non-diseased tissue sites across nearly 1000 individuals, primarily for molecular assays including WGS, WES, and RNA-Seq.*
+
+```{r}
+# Load expression values (TPM) from the raw file, skipping information
+rawdatabase_5 <- read.csv(gzfile("Database5_Gene_TPMs_by_Whole_Blood_Tissue_GTExV10.gz"), header = TRUE,skip=2, sep = "\t")
+
+# Initialize clean database with gene identifiers
+database_5 <- data.frame(Gene_ID=rawdatabase_5$Name)
+
+# Append columns with TPM values and add dataset label to each sample
+database5_individuals <- colnames(rawdatabase_5)[3:ncol(rawdatabase_5)] 
+for (individual5 in database5_individuals) {
+    col_name5 <- paste0(individual5,"_Database5")  
+    database_5[[col_name5]] <- rawdatabase_5[[individual5]] 
+}
+
+# Remove genes with suffixes (e.g., _PAR_Y), which are not used and often have 0 TPMs to avoid errors
+delete <- c()
+delete <- which(grepl("_", database_5$Gene_ID))
+database_5 <- database_5[-delete,]
+
+# Remove gene version numbers (e.g., ENSG000001.1 → ENSG000001) to unify formatting
+database_5$Gene_ID <- gsub("\\.[^.]+$", "", database_5$Gene_ID)
+
+# Check for any remaining duplicates
+unique(database_5$Gene_ID[duplicated(database_5$Gene_ID)])
+
+# Set cleaned gene IDs as row names and remove the Gene_ID column
+rownames(database_5) <- database_5$Gene_ID
+database_5 <- database_5[, -which(colnames(database_5) == "Gene_ID")]
+
+# Round values to 2 decimals for better readability (data already in TPM)
+ database_5<- round(database_5, 2)
+```
+
+
+## Database 6
+
+**Brief description:**
+*This dataset has been extracted from GTEx portal, also from their version 10. In this case, only results for the "tissue" Whole Blood are the only ones presented in the database 6. The whole blood samples as said by the webpage are taken from different spots: Femoral vein; subclavian vein and heart are other possible sites.*
+
+
+```{r}
+# Load median TPM expression values from GTEx across tissues (Database 6)
+rawdatabase_6 <- data <- read.csv(gzfile("Database6_Median_gene_level_TPM_by_tissue_GTExV10.gz"), header = TRUE,skip=2, sep = "\t")
+
+# Extract Whole Blood TPM values only
+database_6 <- data.frame(Gene_ID=rawdatabase_6$Name,Median_gene_level_TPM_Whole_Blood_Database6=rawdatabase_6$Whole_Blood)
+
+# Remove transcripts with gene IDs containing underscores (e.g., "_PAR_Y"), which often have 0 TPMs
+delete6 <- c()
+delete6 <- which(grepl("_", database_6$Gene_ID))
+database_6 <- database_6[-delete6,]
+
+# Remove version numbers from gene IDs (e.g., ENSG000001.1 → ENSG000001)
+database_6$Gene_ID <- gsub("\\.[^.]+$", "", database_6$Gene_ID)
+
+# Check for remaining duplicates
+unique(database_6$Gene_ID[duplicated(database_6$Gene_ID)])
+
+# Set gene IDs as row names
+rownames(database_6) <- database_6$Gene_ID
+
+# Remove the Gene_ID column (preserving data frame structure)
+database_6 <- database_6[, -which(colnames(database_6) == "Gene_ID"), drop = FALSE]
+
+# Round TPM values to 2 decimals for consistency
+database_6<- round(database_6, 2)
+```
+
+
+
+
+
+## CALCULATING TPMs from RAW COUNTS
+Databases 2, 3, and 4 provide gene expression data as raw counts rather than TPMs.
+Since the analysis requires TPMs (Transcripts Per Million), these must be calculated from raw counts.
+To do this, additional gene information is needed, specifically transcript lengths.
+This document presents only one of the three methods evaluated for this calculation.
+
+
+Loading gene information from Ensembl Biomart
+
+```{r}
+# Importing the file downloaded from Biomart containing gene annotation information is imported.
+Biomart_information <- read.csv("Biomart_information.txt",sep="\t")
+```
+
+Using MANE Select to obtain representative transcripts. MANE Select chooses a representative transcript per gene based on specific criteria.
+```{r}
+
+# The GTF annotation file from the official MANE FTP site is downloaded and read.
+way3 <-read.csv(gzfile("MANE.GRCh38.v1.4.ensembl_genomic.gtf.gz"), sep = "\t", header= FALSE)
+
+# Irrelevant columns are removed to simplify the dataset.
+way3 <- subset(way3, select = -c(V2, V6, V8))
+
+# Descriptive column names are assigned.
+colnames(way3) <- c("Chromosome","Type","Start","End","Strand","Gene_ID")
+
+# Extract Transcript_ID, Tag (e.g., MANE Select, MANE Plus Clinical), and Gene_ID from the Gene_Info column.
+
+way3$Transcript_ID <- sub(".*transcript_id\\s*\"?(ENST[0-9]+)\\..*", "\\1", way3$Gene_ID)
+way3$Tag <- sub(".*tag (MANE[^;]+);.*", "\\1", way3$Gene_ID)
+way3$Gene_ID <- sub(".*gene_id (ENSG[0-9]+)\\..*", "\\1", way3$Gene_ID)
+
+# Filtering exons and calculating transcript lengths
+# Only rows where Type is "exon" are kept to avoid introns.
+# Transcript lengths are calculated by summing the lengths of all exons.
+way3_treated <- way3[way3$Type == "exon", ]
+
+way3_treated <- way3_treated %>%
+  group_by(Transcript_ID) %>%
+  summarise(Gene_ID = first(Gene_ID), MANE_Length = sum(End - Start + 1),Tag = first(Tag)) %>%
+  arrange(Gene_ID)
+
+# Rearrange the dataframe to place Gene_ID as the first column.
+way3_treated <- way3_treated %>% relocate("Transcript_ID", .after = "Gene_ID")
+
+# Identifying genes with multiple transcripts
+# Detect genes that have more than one representative transcript.
+sum(duplicated(way3_treated$Gene_ID))
+duplicated_genes_way3 <- way3_treated[duplicated(way3_treated$Gene_ID) | duplicated(way3_treated$Gene_ID, fromLast = TRUE), ]
+
+# Removing MANE Plus Clinical transcripts
+# For genes with multiple transcripts, those tagged as "MANE Plus Clinical" are removed,
+# keeping only the MANE Select transcripts to ensure a single representative transcript per gene.
+
+transcripts_to_remove <- way3 %>%
+  filter(Transcript_ID %in% duplicated_genes_way3$Transcript_ID, Tag == "MANE_Plus_Clinical") %>%
+  pull(Transcript_ID)  
+
+way3_treated <- way3_treated %>%
+  filter(!Transcript_ID %in% transcripts_to_remove)
+
+# Verify that no duplicated genes remain.
+print(sum(duplicated(way3_treated$Gene_ID)))
+
+# Creating the final dataframe with representative transcript lengths
+# The final dataframe contains Gene_ID, MANE_length (representative transcript length), and Transcript_ID.
+way3_MANE_data_select_transcript_length <- data.frame(
+  Gene_ID = way3_treated$Gene_ID,
+  MANE_length = way3_treated$MANE_Length,
+  Transcript_ID = way3_treated$Transcript_ID,
+  stringsAsFactors = FALSE
+)
+
+```
+
+## Creation of the function*
+Before running the function below, it is important to ensure that the gene IDs in the input database correspond to those in the MANE reference transcript length table (way3_MANE_data_select_transcript_length). This precaution avoids losing genes during the TPM calculation due to mismatches.
+
+```{r}
+TPM_calculator <- function(database) {
+  
+        # Add the prefix "TPMs_" to all sample column names
+        colnames(database) <- paste0("TPMs_", colnames(database))
+        
+        # Loop through each sample (column) and each gene (row) to calculate RPK (Reads Per Kilobase)
+        for (c in 1:ncol(database)) {
+          for(r in 1:nrow(database)) {
+            # In each loop the gene_id is going to be saved as gene_name.
+            gene_name <- rownames(database)[r]
+            # Find the corresponding row in the MANE transcript length table
+            row_number <- match(gene_name, way3_MANE_data_select_transcript_length$Gene_ID)
+            # Calculate Reads Per Kilobase (RPK) by dividing the raw count by the transcript length (in kb)
+            RPKpergene <- database[r,c]/(way3_MANE_data_select_transcript_length[row_number,"MANE_length"]/1000)
+            # Store the RPK value back into the database
+            database[r,c] <- RPKpergene
+          }  
+        }
+        
+        # Remove any genes that have NA values in any sample to avoid errors in TPM calculation
+        database <- na.omit(database)
+        
+        # Calculate the sum of RPK values for each sample
+        sum_RPKs_per_sample <- colSums(database)
+        
+        # Normalize RPK values to calculate TPM for each gene and sample
+        database <- sweep(database, 2, sum_RPKs_per_sample, "/") * 1e6
+        
+        # Print column sums to verify that each sample sums to approximately 1 million TPMs (1e6)
+        print(colSums(database))
+
+        # Round TPM values to two decimal places for easier visualization
+        database<- round(database, 2)
+        # Return the final TPM matrix
+        return(database)
+}
+```
+
+
+## Using the function to calculate TPMs
+
+*Database 2*
+```{r}
+database_2 <- TPM_calculator(database_2)
+```
+*Database 3*
+```{r}
+database_3 <- TPM_calculator(database_3)
+```
+*Database 4*
+```{r}
+database_4 <- TPM_calculator(database_4)
+```
+
+
+# MERGING THE DATABASES INTO THE FINAL ONE
+The databases which are going to be merged are: 1, 2, 3, 4, 5 and 6.
+
+Input: database_1, database_2, database_3, database_4, database_5, database_6
+Output: Transcriptome_dataset 
+
+```{r}
+# A new column called 'row_names' is added to each database to facilitate merging 
+database_1 <- cbind(row_names = rownames(database_1), database_1)
+database_2 <- cbind(row_names = rownames(database_2), database_2)
+database_3 <- cbind(row_names = rownames(database_3), database_3)
+database_4 <- cbind(row_names = rownames(database_4), database_4)
+database_5 <- cbind(row_names = rownames(database_5), database_5)
+database_6 <- cbind(row_names = rownames(database_6), database_6)
+
+# Combine all databases into a list for easy processing
+databases <- list(database_1, database_2, database_3, database_4, database_5, database_6)
+
+# Merge all databases by the 'row_names' column, keeping all rows (full outer join)
+Transcriptome_dataset <- reduce(databases, function(x, y) merge(x, y, by = "row_names", all = TRUE))
+
+# After merging, remove the 'row_names' column from the original databases
+database_1$row_names <- NULL
+database_2$row_names <- NULL
+database_3$row_names <- NULL
+database_4$row_names <- NULL
+database_5$row_names <- NULL
+database_6$row_names <- NULL
+
+# Set the 'row_names' column of the merged dataset as the rownames,
+# then remove the 'row_names' column to leave only numeric TPM data.
+
+rownames(Transcriptome_dataset) <- Transcriptome_dataset$row_names
+Transcriptome_dataset <- Transcriptome_dataset[,-1]
+```
+
+# Downloading and saving the databases in .csv format
+
+```{r}
+write.csv(database_1, "Database 1.csv", row.names = TRUE)
+write.csv(database_2, "Database 2.csv", row.names = TRUE)
+write.csv(database_3, "Database 3.csv", row.names = TRUE)
+write.csv(database_4, "Database 4.csv", row.names = TRUE)
+write.csv(database_5, "Database 5.csv", row.names = TRUE)
+write.csv(database_6, "Database 6.csv", row.names = TRUE)
+write.csv(Transcriptome_dataset, "Transcriptome dataset.csv", row.names = TRUE)
+```
+For future TPM calculations, the dataset way3_MANE_data_select_transcript_length is saved locally as a CSV file.
+```{r}
+write.csv(way3_MANE_data_select_transcript_length, "MANE.csv", row.names = FALSE)
+```
+
+
+
+

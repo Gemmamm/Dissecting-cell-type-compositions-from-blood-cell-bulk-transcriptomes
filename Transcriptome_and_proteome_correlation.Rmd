@@ -1,0 +1,239 @@
+---
+title: "Transcriptome_and_proteome_correlation"
+output: html_notebook
+---
+This document shows the pipeline followed for the preliminary test analysing the correlation between transcriptome and proteome datas for CD4+T Cells
+
+# Libraries needed
+```{r}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+```
+
+```{r}
+# Taking the data from the transcriptome I created before:
+Transcriptome <- read.csv("Van_der_Wijst_SM.txt", sep= "\t")
+Transcriptome <- Transcriptome[,c("GeneSymbol","CD4_T", "CD4_T.1", "CD4_T.2","CD4_T.3")]
+
+# Preparing the correlation of the matrices
+common_genes <- intersect(Proteome$Protein.ID, Transcriptome$GeneSymbol)
+# Creating datasets with the same 37 genes
+proteome_study <- Proteome[Proteome$Protein.ID %in% common_genes, ]
+transcriptome_study <- Transcriptome[Transcriptome$GeneSymbol %in% common_genes, ]
+
+# There are various types of Locations, so first the analysis is going to be by location:
+# "Cytosol"  "Membrane" "Nucleus"
+proteome_cytosol <- proteome_study[proteome_study$Compartment == "Cytosol", ]
+proteome_membrane <- proteome_study[proteome_study$Compartment == "Membrane", ]
+proteome_nucleus <- proteome_study[proteome_study$Compartment == "Nucleus", ]
+
+# Correlation of Transcriptome and Proteome from the Cytosol
+transcriptome_study <- transcriptome_study %>%
+  pivot_longer(
+    cols = -GeneSymbol,        
+    names_to = "CellType_lane",
+    values_to = "TPM"
+  )
+
+Transcriptome_median <- transcriptome_study %>%
+  group_by(GeneSymbol) %>%
+  summarize(Transcriptome_Expression = median(TPM, na.rm = TRUE))
+
+# Correlating Cytosol and time 0 
+proteome_cytosol_median <- proteome_cytosol %>%
+  group_by(Protein.ID, TCR.Stimulation..min.) %>%
+  summarize(Protein_Abundance = median(Abundance, na.rm = TRUE)) %>%
+  ungroup()
+
+cyt_0 <- Transcriptome_median %>%
+  left_join(proteome_cytosol_median, by = c("GeneSymbol" = "Protein.ID")) %>%
+  filter(TCR.Stimulation..min. == "0") %>%
+  select(GeneSymbol, Transcriptome_Expression, Protein_Abundance)
+
+# Using spearman as correlation method as there are differences between the origin of transcriptome and proteome datas
+cor_spearman <- cor(log2(cyt_0$Transcriptome_Expression+1), log2(cyt_0$Protein_Abundance+1), method = "spearman", use = "complete.obs")
+
+ggplot(cyt_0, aes(x = log2(Transcriptome_Expression+1), y = log2(Protein_Abundance+1))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(
+    title = paste("Correlation transcriptome vs proteome (r =", round(cor_spearman, 3), ")"),
+    x = "log2(Median Transcriptome Expression+1)",
+    y = "log2(Median Protein Abundance+1)"
+  ) +
+  theme_minimal()
+# Cytosol 15 min after activation
+cyt_15 <- Transcriptome_median %>%
+  left_join(proteome_cytosol_median, by = c("GeneSymbol" = "Protein.ID")) %>%
+  filter(TCR.Stimulation..min. == "15") %>%
+  select(GeneSymbol, Transcriptome_Expression, Protein_Abundance)
+
+# Using spearman as correlation method as there are differences between the origin of transcriptome and proteome datas
+cor_spearman <- cor(log2(cyt_15$Transcriptome_Expression+1), log2(cyt_15$Protein_Abundance+1), method = "spearman", use = "complete.obs")
+
+ggplot(cyt_15, aes(x = log2(Transcriptome_Expression+1), y = log2(Protein_Abundance+1))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(
+    title = paste("Correlation transcriptome vs proteome (r =", round(cor_spearman, 3), ")"),
+    x = "log2(Median Transcriptome Expression+1)",
+    y = "log2(Median Protein Abundance+1)"
+  ) +
+  theme_minimal()
+# Cytosol 60 min after activation
+cyt_60 <- Transcriptome_median %>%
+  left_join(proteome_cytosol_median, by = c("GeneSymbol" = "Protein.ID")) %>%
+  filter(TCR.Stimulation..min. == "60") %>%
+  select(GeneSymbol, Transcriptome_Expression, Protein_Abundance)
+
+# Using spearman as correlation method as there are differences between the origin of transcriptome and proteome datas
+cor_spearman <- cor(log2(cyt_60$Transcriptome_Expression+1), log2(cyt_60$Protein_Abundance+1), method = "spearman", use = "complete.obs")
+
+ggplot(cyt_60, aes(x = log2(Transcriptome_Expression+1), y = log2(Protein_Abundance+1))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(
+    title = paste("Correlation transcriptome vs proteome (r =", round(cor_spearman, 3), ")"),
+    x = "log2(Median Transcriptome Expression+1)",
+    y = "log2(Median Protein Abundance+1)"
+  ) +
+  theme_minimal()
+
+# Correlation of Transcriptome and Proteome from the Membrane
+
+# Correlating Membrane and time 0 
+proteome_membrane_median <- proteome_membrane %>%
+  group_by(Protein.ID, TCR.Stimulation..min.) %>%
+  summarize(Protein_Abundance = median(Abundance, na.rm = TRUE)) %>%
+  ungroup()
+
+mem_0 <- Transcriptome_median %>%
+  left_join(proteome_membrane_median, by = c("GeneSymbol" = "Protein.ID")) %>%
+  filter(TCR.Stimulation..min. == "0") %>%
+  select(GeneSymbol, Transcriptome_Expression, Protein_Abundance)
+
+# Using spearman as correlation method as there are differences between the origin of transcriptome and proteome datas
+cor_spearman <- cor(log2(mem_0$Transcriptome_Expression+1), log2(mem_0$Protein_Abundance+1), method = "spearman", use = "complete.obs")
+
+ggplot(mem_0, aes(x = log2(Transcriptome_Expression+1), y = log2(Protein_Abundance+1))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(
+    title = paste("Correlation transcriptome vs proteome (r =", round(cor_spearman, 3), ")"),
+    x = "log2(Median Transcriptome Expression+1)",
+    y = "log2(Median Protein Abundance+1)"
+  ) +
+  theme_minimal()
+# Membrane 15 min after activation
+mem_15 <- Transcriptome_median %>%
+  left_join(proteome_membrane_median, by = c("GeneSymbol" = "Protein.ID")) %>%
+  filter(TCR.Stimulation..min. == "15") %>%
+  select(GeneSymbol, Transcriptome_Expression, Protein_Abundance)
+
+# Using spearman as correlation method as there are differences between the origin of transcriptome and proteome datas
+cor_spearman <- cor(log2(mem_15$Transcriptome_Expression+1), log2(mem_15$Protein_Abundance+1), method = "spearman", use = "complete.obs")
+
+ggplot(mem_15, aes(x = log2(Transcriptome_Expression+1), y = log2(Protein_Abundance+1))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(
+    title = paste("Correlation transcriptome vs proteome (r =", round(cor_spearman, 3), ")"),
+    x = "log2(Median Transcriptome Expression+1)",
+    y = "log2(Median Protein Abundance+1)"
+  ) +
+  theme_minimal()
+
+# Membrane 60 min after activation
+mem_60 <- Transcriptome_median %>%
+  left_join(proteome_membrane_median, by = c("GeneSymbol" = "Protein.ID")) %>%
+  filter(TCR.Stimulation..min. == "60") %>%
+  select(GeneSymbol, Transcriptome_Expression, Protein_Abundance)
+
+# Using spearman as correlation method as there are differences between the origin of transcriptome and proteome datas
+cor_spearman <- cor(log2(mem_60$Transcriptome_Expression+1), log2(mem_60$Protein_Abundance+1), method = "spearman", use = "complete.obs")
+
+ggplot(mem_60, aes(x = log2(Transcriptome_Expression+1), y = log2(Protein_Abundance+1))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(
+    title = paste("Correlation transcriptome vs proteome (r =", round(cor_spearman, 3), ")"),
+    x = "log2(Median Transcriptome Expression+1)",
+    y = "log2(Median Protein Abundance+1)"
+  ) +
+  theme_minimal()
+# Correlation of Transcriptome and Proteome from the Nucleus
+
+# Correlating Nucleus and time 0 
+proteome_nucleus_median <- proteome_nucleus %>%
+  group_by(Protein.ID, TCR.Stimulation..min.) %>%
+  summarize(Protein_Abundance = median(Abundance, na.rm = TRUE)) %>%
+  ungroup()
+
+nuc_0 <- Transcriptome_median %>%
+  left_join(proteome_nucleus_median, by = c("GeneSymbol" = "Protein.ID")) %>%
+  filter(TCR.Stimulation..min. == "0") %>%
+  select(GeneSymbol, Transcriptome_Expression, Protein_Abundance)
+
+# Using spearman as correlation method as there are differences between the origin of transcriptome and proteome datas
+cor_spearman <- cor(log2(nuc_0$Transcriptome_Expression+1), log2(nuc_0$Protein_Abundance+1), method = "spearman", use = "complete.obs")
+
+ggplot(nuc_0, aes(x = log2(Transcriptome_Expression+1), y = log2(Protein_Abundance+1))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(
+    title = paste("Correlation transcriptome vs proteome (r =", round(cor_spearman, 3), ")"),
+    x = "log2(Median Transcriptome Expression+1)",
+    y = "log2(Median Protein Abundance+1)"
+  ) +
+  theme_minimal()
+# Nucleus 15 min after activation
+nuc_15 <- Transcriptome_median %>%
+  left_join(proteome_nucleus_median, by = c("GeneSymbol" = "Protein.ID")) %>%
+  filter(TCR.Stimulation..min. == "15") %>%
+  select(GeneSymbol, Transcriptome_Expression, Protein_Abundance)
+
+# Using spearman as correlation method as there are differences between the origin of transcriptome and proteome datas
+cor_spearman <- cor(log2(nuc_15$Transcriptome_Expression+1), log2(nuc_15$Protein_Abundance+1), method = "spearman", use = "complete.obs")
+
+ggplot(nuc_15, aes(x = log2(Transcriptome_Expression+1), y = log2(Protein_Abundance+1))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(
+    title = paste("Correlation transcriptome vs proteome (r =", round(cor_spearman, 3), ")"),
+    x = "log2(Median Transcriptome Expression+1)",
+    y = "log2(Median Protein Abundance+1)"
+  ) +
+  theme_minimal()
+# Nucleus 60 min after activation
+nuc_60 <- Transcriptome_median %>%
+  left_join(proteome_nucleus_median, by = c("GeneSymbol" = "Protein.ID")) %>%
+  filter(TCR.Stimulation..min. == "60") %>%
+  select(GeneSymbol, Transcriptome_Expression, Protein_Abundance)
+
+# Using spearman as correlation method as there are differences between the origin of transcriptome and proteome datas
+cor_spearman <- cor(log2(nuc_60$Transcriptome_Expression+1), log2(nuc_60$Protein_Abundance+1), method = "spearman", use = "complete.obs")
+
+ggplot(nuc_60, aes(x = log2(Transcriptome_Expression+1), y = log2(Protein_Abundance+1))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(
+    title = paste("Correlation transcriptome vs proteome (r =", round(cor_spearman, 3), ")"),
+    x = "log2(Median Transcriptome Expression+1)",
+    y = "log2(Median Protein Abundance+1)"
+  ) +
+  theme_minimal()
+```
+
+
+

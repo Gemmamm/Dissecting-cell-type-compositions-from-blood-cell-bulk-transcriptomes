@@ -1,0 +1,207 @@
+---
+title: "Creation_of_Monaco_SM"
+output: html_notebook
+---
+This document shows the pipeline followed to get the Monaco Matrix
+
+# Libraries needed
+```{r}
+BiocManager::install("celldex")
+
+library(BiocManager)
+library(celldex)
+library(tibble)
+library(Seurat)
+library(ggrepel)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(dendextend)
+library(RColorBrewer)
+```
+
+# Pipeline
+Downloading the data
+```{r}
+Monaco_dataset<- celldex::MonacoImmuneData()
+```
+
+
+*First Data Processing*
+```{r}
+# Main and fine labels
+table(Monaco_dataset$label.main)
+table(Monaco_dataset$label.fine)  
+
+# Create label mapping dataframe
+cellnames <- data.frame(
+  main_label = Monaco_dataset$label.main,
+  fine_label = Monaco_dataset$label.fine,
+  stringsAsFactors = FALSE
+) 
+
+# Extract expression matrix (logcounts)
+MonacoMatrix <- Monaco_dataset@assays@data$logcounts 
+
+# Add donor and abbreviated label to metadata
+cellnames$donor <- str_extract(colnames(MonacoMatrix), "^[^_]+") 
+cellnames$abrev_label <- str_extract(colnames(MonacoMatrix), "(?<=_).+$") 
+
+# As donors DZQV, and G4YW have one cell type less than the other donors. These cell types are identified 
+control <- cellnames %>% group_by(donor) %>% summarise(cell_types = list(unique(abrev_label))) %>% mutate(missing_cell_types = lapply(cell_types, function(x) setdiff(unique(cellnames$abrev_label), x))) %>% select(donor, missing_cell_types)
+
+# Update colnames
+colnames(MonacoMatrix) <- cellnames$fine_label 
+```
+
+*Analysis of the data with seurat*
+```{r}  
+colnames(MonacoMatrix) <- paste0(cellnames$abrev_label, "_", cellnames$donor)
+seurat_obj <- CreateSeuratObject(counts = MonacoMatrix, meta.data = cellnames)
+
+# Creation of Dendrogram before batch correction
+
+seurat_obj[["logcounts"]] <- CreateAssayObject(counts = MonacoMatrix) 
+DefaultAssay(seurat_obj) <- "logcounts"
+
+seurat_obj <- ScaleData(seurat_obj, assay = "logcounts", verbose = FALSE)
+seurat_obj <- FindVariableFeatures(seurat_obj, assay = "logcounts", verbose = FALSE)
+seurat_obj <- RunPCA(seurat_obj, assay = "logcounts", verbose = FALSE)
+
+pca_info1 <- Embeddings(seurat_obj, reduction = "pca")[, 1:10]
+distance_matrix1  <- stats::dist(pca_info1)
+Cluster1 <- hclust(distance_matrix1 , method = "ward.D2")
+dendrogram1 <- as.dendrogram(Cluster1)
+
+# Creating the color palette for donors (the Dendrogram will be colored by donor)
+donors <- seurat_obj$donor
+donor_levels <- unique(donors)
+donor_colors <- RColorBrewer::brewer.pal(length(donor_levels), "Set1")
+names(donor_colors) <- donor_levels
+labels_colors(dendrogram1) <- donor_colors[donors][order.dendrogram(dendrogram1)]
+dendrogram1 <- dendrogram1 %>% set("labels_cex", 0.4)
+
+# Ploting the Dendrogram with a Legend of the Donors, and saving it with the title
+png("Dendrogram before treating the data based on the disperssion.png", width = 2400, height = 1600, res = 300)
+par(mar = c(6, 4, 4, 1)) 
+plot(dendrogram1, main = "Dendrogram before treating the data based on the disperssion", cex = 0.8 )
+legend("topright", legend = donor_levels, fill = donor_colors, title = "Donor", cex = 0.8)
+
+dev.off()  
+```
+*Removing Batch effect*
+```{r}  
+# Using SCTransform
+# Doing the separation of the samples by donor
+seurat_list <- SplitObject(seurat_obj, split.by = "donor") 
+#Applying SCTransform to each donor independently 
+seurat_list <- lapply(seurat_list, function(x) {
+  SCTransform(x, verbose = FALSE)
+}) 
+
+# PCA VISUALIZATION (DONOR AND CELL)
+seurat_merged <- merge(seurat_list[[1]], y = seurat_list[-1])
+features_list <- lapply(seurat_list, function(x) VariableFeatures(x, assay = "SCT"))
+common_features <- Reduce(intersect, features_list)
+VariableFeatures(seurat_merged[["SCT"]]) <- common_features
+seurat_merged <- RunPCA(seurat_merged, assay = "SCT", verbose = FALSE)
+
+# Creating PCA colored by donor 
+p1 <- DimPlot(seurat_merged, reduction = "pca", group.by = "donor") +
+  ggtitle("PCA colored by donor") +
+  theme(
+    plot.title = element_text(size = 10),         
+    legend.text = element_text(size = 9)         
+  )
+# Creating PCA colored by cell type
+p2 <- DimPlot(seurat_merged, reduction = "pca", group.by = "fine_label") +
+  ggtitle("PCA colored by cell type") +
+  theme(
+    plot.title = element_text(size = 10),         
+    legend.text = element_text(size = 9)         
+  )
+
+# Plotting them and saving
+png("PCA colored by donor and cell type.png", width = 3200, height = 1600, res = 300)
+p1|p2
+dev.off()  
+```
+  
+
+*Dendrogram after Batch correction*
+```{r}  
+# Using the PCA data as before, but using the data that has been normalized and scaled by SCTransform function
+pca_info2 <- Embeddings(seurat_merged, reduction = "pca")[, 1:10]
+
+# Calculating the distance and doing the clustering by the same method and codes
+distance_matrix2 <- dist(pca_info2)
+Cluster2 <- hclust(distance_matrix2 , method = "ward.D2")
+dendrogram2 <- as.dendrogram(Cluster2)
+
+# Coloring by donor again
+donors2 <- seurat_merged$donor  
+donor_levels2 <- unique(donors2)
+donor_colors2 <- RColorBrewer::brewer.pal(length(donor_levels2), "Set1")
+names(donor_colors2) <- donor_levels2
+labels_colors(dendrogram2) <- donor_colors2[donors2][order.dendrogram(dendrogram2)]
+dendrogram2 <- dendrogram2 %>% set("labels_cex", 0.4)
+
+# Ploting with the legend and saving it
+png("Dendrogram after treating the data based on the disperssion.png", width = 2400, height = 1600, res = 300)
+plot(dendrogram2, main = "Dendrogram after treating the data based on the disperssion")
+legend("topright", legend = donor_levels2, fill = donor_colors2, title = "Donor", cex = 0.8)
+dev.off()  
+```
+
+*Simplifying the data by merging some cell types*
+```{r} 
+seurat_merged$cell_group <- NA
+seurat_merged$cell_group[seurat_merged$abrev_label %in% c("CD8_EM", "CD8_TE")] <- "CD8.Effector"
+seurat_merged$cell_group[seurat_merged$abrev_label %in% c("VD2+", "VD2-")] <- "gdT.Cells"
+seurat_merged$cell_group[seurat_merged$abrev_label %in% c("TFH", "Treg", "Th1", "Th1/Th17", "Th17", "Th2")] <- "CD4.Helper"
+seurat_merged$cell_group[seurat_merged$abrev_label %in% c("B_naive", "B_NSM", "B_Ex", "B_SM")] <- "B.Cells"
+seurat_merged$cell_group[seurat_merged$abrev_label %in% c("I_mono", "NC_mono")] <- "nc.intermediate.Monocytes"
+
+# For the cell types not grouped, they stay the same
+seurat_merged$cell_group[is.na(seurat_merged$cell_group)] <- seurat_merged$abrev_label[is.na(seurat_merged$cell_group)]
+
+# Converting to factor to avoid errors
+seurat_merged$cell_group <- factor(seurat_merged$cell_group)
+#Aggregate expression asks for this previous code
+seurat_merged <- PrepSCTFindMarkers(seurat_merged, assay = "SCT")
+agg_expr2 <- AggregateExpression(seurat_merged, group.by = c("donor", "cell_group"), assays = "RNA")
+```
+
+*Identifying markers and exporting SM*
+```{r} 
+MonacoMatrix <- as.data.frame(MonacoMatrix)
+seurat_obj <- CreateSeuratObject(counts = MonacoMatrix)
+Idents(seurat_obj) <- factor(colnames(MonacoMatrix))
+seurat_obj <- NormalizeData(seurat_obj)
+markers <- FindAllMarkers(seurat_obj, only.pos = FALSE,min.pct = 0.1, logfc.threshold = 0.25)
+
+top_markers <- markers %>% group_by(cluster) %>% arrange(p_val_adj, desc(avg_log2FC)) %>%slice(c(1:15, (n() - 14):n())) %>% ungroup()
+
+top_genes <- unique(top_markers$gene)
+
+# Preparing the data for CIBERSORTx
+Monaco <- as.matrix(agg_expr2$RNA)
+Monaco <- as.data.frame(Monaco)
+Monaco <- Monaco[top_genes, ]
+Monaco <- rownames_to_column(Monaco, var= "Gene Symbol")
+Monaco<- rbind(colnames(Monaco), Monaco)
+colnames(Monaco) <- NULL
+columns <- as.character(Monaco[1,])
+colnames(Monaco) <- columns 
+Monaco <- Monaco[-1,]
+rownames(Monaco) <- Monaco$`Gene Symbol`
+colnames(Monaco) <- sub(".*?_", "", colnames(Monaco))
+Monaco <- Monaco[,-1]
+Monaco <- Monaco[, !(colnames(Monaco) == "CD4_TE")]
+Monaco <- Monaco[,-c(5,23)]
+colnames(Monaco) <- sub("\\.\\d+$", "", colnames(Monaco))
+
+write.table(Monaco, file = "MonacoSM.txt", sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA)
+
+```
+

@@ -1,0 +1,1045 @@
+---
+title: "CIBERSORTx_Analyses"
+output: html_notebook
+---
+This document shows all the different pipelines followed to create the result plots found in the thesis from the CIBERSORTx data
+
+# Libraries Needed
+```{r}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(paletteer)
+library(rcartocolor)
+library(pheatmap)
+library(gridExtra)
+```
+
+# Setting the colors that will be needed for each SM
+For LM22:
+```{r}
+stackcolors <- c(
+  "B.cells.naive" = "yellow",  
+  "B.cells.memory" = "gold",  
+  "Plasma.cells" = "orange",    
+  "T.cells.CD8" = "lightgreen",    
+  "T.cells.CD4.naive" = "darkgreen",
+  "T.cells.CD4.memory.resting" = "darkolivegreen",  
+  "T.cells.CD4.memory.activated" = "darkolivegreen1", 
+  "T.cells.follicular.helper" = "darkolivegreen3",  
+  "T.cells.regulatory..Tregs." = "darkolivegreen4", 
+  "T.cells.gamma.delta" = "chartreuse4",  
+  "NK.cells.resting" = "#3B82F6",  
+  "NK.cells.activated" = "#1E3A8A",  
+  "Monocytes" = "darkorchid1",  
+  "Macrophages.M0" = "darkmagenta",  
+  "Macrophages.M1" = "brown1",  
+  "Macrophages.M2" = "brown3",  
+  "Dendritic.cells.resting" = "darkred",  
+  "Dendritic.cells.activated" = "#1ABC9C",  
+  "Mast.cells.resting" = "lightgrey",  
+  "Mast.cells.activated" = "grey",  
+  "Eosinophils" = "darkgrey",  
+  "Neutrophils" = "gray28"
+)
+```
+For Van der Wijst SM:
+```{r}
+stackcolors2 <- c(
+  "B" = "yellow",  
+  "Plasma" = "orange",    
+  "CD8_T" = "lightgreen",    
+  "CD4_T" = "darkgreen",
+  "CD56bright_NK" = "#3B82F6",  
+  "CD56dim_NK" = "#1E3A8A",  
+  "cMonocyte" = "darkorchid1",
+  "ncMonocyte" = "darkorchid4",
+  "Megakaryocyte" = "burlywood",
+  "pDC" = "darkred",  
+  "mDC" = "#1ABC9C"
+)
+```
+For Monaco:
+```{r}
+stackcolors3 <- c(
+  "B.Memory" = "gold",      
+  "B.Naive" = "yellow",
+  "Basophils.LD"= "darkgrey",
+  "MAIT" = "darkolivegreen3",          
+  "Monocytes.C" = "darkorchid1",   
+  "Monocytes.NC.I" = "darkorchid4",
+  "NK" = "#1E3A8A",             
+  "Neutrophils.LD" ="gray28", 
+  "Plasmablasts" = "orange",   
+  "T.CD4.Memory" =  "darkolivegreen",  
+  "T.CD4.Naive" =  "darkgreen",   
+  "T.CD8.Memory" = "darkolivegreen1",
+  "T.CD8.Naive"  = "lightgreen",  
+  "T.gd.Vd2" = "chartreuse4",
+  "T.gd.non.Vd2" = "chartreuse2",
+  "mDCs"  = "#1ABC9C",         
+  "pDCs" = "darkred"  
+)
+```
+
+# Transcriptome Matrix 1 vs LM22
+*Stack bar plot*
+```{r}
+TM1vsLM22_d23_raw <- read.csv("CIBERSORTx_Results.csv")
+
+TM1vsLM22_d23 <- TM1vsLM22_d23_raw[,-c(24,25,26)]
+
+TM1vsLM22_d23 <- TM1vsLM22_d23 %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+
+TM1vsLM22_d23 <- TM1vsLM22_d23 %>% rename(patients = Mixture)
+
+LM22order <- c("Neutrophils", "Eosinophils", "Mast.cells.resting", "Mast.cells.activated", "Dendritic.cells.resting", "Dendritic.cells.activated", "Macrophages.M2","Macrophages.M1", "Macrophages.M0", "Monocytes", "NK.cells.activated","NK.cells.resting", "T.cells.gamma.delta", "T.cells.regulatory..Tregs.", "T.cells.follicular.helper", "T.cells.CD4.memory.activated", "T.cells.CD4.memory.resting", "T.cells.CD4.naive", "T.cells.CD8", "Plasma.cells", "B.cells.memory", "B.cells.naive")
+TM1vsLM22_d23$cell_types <- factor(TM1vsLM22_d23$cell_types, levels = LM22order)
+
+ggplot(data = TM1vsLM22_d23, mapping = aes(x = patients, y = cell_fraction * 100, fill = cell_types)) + 
+  geom_bar(position = "stack", stat = "identity") +
+  scale_fill_manual(values = stackcolors) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  labs(y = "Relative Percent", fill= "Leukocyte cell types") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size= 5), axis.title.x = element_text(size = 9), axis.title.y = element_text(size = 9),legend.text = element_text(size = 7), legend.title =element_text(size = 9), legend.key.size = unit(0.8, "lines"))
+```
+
+*Scatter plot*
+```{r}
+stats_TM1_LM22 <- TM1vsLM22_d23 %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  )
+
+stats_TM1_LM22.log <- stats_TM1_LM22 %>%
+  mutate(
+   log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+LM22 <- ggplot(stats_TM1_LM22.log, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors) +
+  coord_cartesian(xlim = c(-0.06, 0.6), ylim = c(0, 0.20)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Transcriptome Matrix 1",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on LM22 Signature Matrix)"
+  ) +
+  theme(
+    legend.text = element_text(size = 6),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(LM22)
+```
+
+# Transcriptome Matrix 1 vs Van der Wijst
+*Stack bar plot*
+```{r}
+TM1vsVdW_raw <- read.csv("CIBERSORTx_Results.csv")
+
+TM1vsVdW <- TM1vsVdW_raw [,-c(13,14,15)]
+TM1vsVdW <- TM1vsVdW  %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+TM1vsVdW <- TM1vsVdW  %>% rename(patients = Mixture)
+
+TM1inVdW <- TM1vsVdW %>%
+  group_by(cell_types) %>%
+  summarise(mean_fraction = mean(cell_fraction, na.rm = TRUE)) %>%
+  arrange(mean_fraction) %>%
+  pull(cell_types)
+
+TM1vsVdW$cell_types <- factor(TM1vsVdW$cell_types, levels = TM1inVdW)
+
+
+ggplot(data = TM1vsVdW, mapping = aes(x = patients, y = cell_fraction * 100, fill = cell_types)) + 
+  geom_bar(position = "stack", stat = "identity") +
+  scale_fill_manual(values = stackcolors2) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  labs(y = "Relative Percent", fill= "Leukocyte cell types") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size= 5), axis.title.x = element_text(size = 9), axis.title.y = element_text(size = 9),legend.text = element_text(size = 7), legend.title =element_text(size = 9), legend.key.size = unit(0.8, "lines"))
+```
+
+*Scatter plot*
+```{r}
+stats_TM1_VdW <- TM1vsVdW %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  )
+
+stats_TM1_VdW.log <- stats_TM1_VdW %>%
+  mutate(
+   log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+VdW <- ggplot(stats_TM1_VdW.log, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors2) +
+  coord_cartesian(xlim =  c(-0.06, 0.6), ylim = c(0, 0.20)) + 
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Transcriptome Matrix 1",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on Van der Wijst Signature Matrix)"
+  ) +
+  theme(
+    legend.text = element_text(size = 6),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(VdW)
+```
+
+# Transcriptome Matrix 1 vs default SM from ABIS 
+```{r}
+TM1_ABIS <- read.csv("CIBERSORTx_Results.csv")
+
+TM1_ABIS <- TM1_ABIS[, 1:(ncol(TM1_ABIS)-3)]  
+TM1_ABIS <- TM1_ABIS %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+TM1_ABIS <- TM1_ABIS %>% rename(patients = Mixture)
+
+stats_TM1_ABIS <- TM1_ABIS %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+TM1_ABIS <- ggplot(stats_TM1_ABIS, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors3) +
+  coord_cartesian(xlim = c(-0.06, 0.6), ylim = c(0, 0.20)) +  
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Transcriptome Matrix 1",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on ABIS default SM)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(TM1_ABIS)
+```
+
+# Transcriptome Matrix 2 vs LM22
+```{r}
+TM2vsLM22_raw <- read.csv("CIBERSORTx_Results.csv")
+
+TM2vsLM22 <- TM2vsLM22_raw[,-c(24,25,26)]
+
+TM2vsLM22  <- TM2vsLM22  %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+
+TM2vsLM22  <- TM2vsLM22  %>% rename(patients = Mixture)
+
+TM2vsLM22$cell_types <- factor(TM2vsLM22$cell_types, levels = LM22order)
+
+ggplot(data = TM2vsLM22, mapping = aes(x = patients, y = cell_fraction * 100, fill = cell_types)) + 
+  geom_bar(position = "stack", stat = "identity") +
+  scale_fill_manual(values = stackcolors) +
+  scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+  labs(y = "Relative Percent", fill= "Leukocyte cell types") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size= 5), axis.title.x = element_text(size = 9), axis.title.y = element_text(size = 9),legend.text = element_text(size = 7), legend.title =element_text(size = 9), legend.key.size = unit(0.8, "lines"))
+
+stats_TM2_LM22 <- TM2vsLM22 %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  )
+
+stats_TM2_LM22.log <- stats_TM2_LM22 %>%
+  mutate(
+   log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+p4 <- ggplot(stats_TM2_LM22.log, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors) +
+  coord_cartesian(xlim = c(-0.15, 0.6), ylim = c(0, 0.3)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Transcriptome Matrix 2",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on LM22 Signature Matrix)"
+  ) +
+  theme(
+    legend.text = element_text(size = 6),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p4)
+```
+
+# LM22 VS Different conditions
+Starting with Malignancy 1 of Brucellosis patients with complete remission after treatment
+```{r}
+Malignancy1 <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy1 <- Malignancy1[, 1:(ncol(Malignancy1)-3)]  
+
+Malignancy1 <- Malignancy1 %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+
+Malignancy1 <- Malignancy1 %>% rename(patients = Mixture)
+
+stats_Malignancy1 <- Malignancy1 %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M1 <- ggplot(stats_Malignancy1, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors) +
+  coord_cartesian(xlim = c(-0.15, 0.6), ylim = c(0, 0.15)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Brucellosis patients with complete remission after treatment",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on LM22 Signature Matrix)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M1)
+```
+
+Now Malignancy 2 wich is Brucellosis patients with reinfection after treatment
+```{r}
+Malignancy2 <- read.csv("/CIBERSORTx_Results.csv")
+
+Malignancy2 <- Malignancy2[, 1:(ncol(Malignancy2)-3)]  
+
+Malignancy2 <- Malignancy2 %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+
+Malignancy2 <- Malignancy2 %>% rename(patients = Mixture)
+
+stats_Malignancy2 <- Malignancy2 %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M2 <- ggplot(stats_Malignancy2, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors) +
+  coord_cartesian(xlim = c(-0.15, 0.6), ylim = c(0, 0.15)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Brucellosis patients with reinfection after treatment",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on LM22 Signature Matrix)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M2)
+```
+
+Now Malignancy 3 wich is Brucellosis patients with relapse after treatment
+```{r}
+Malignancy3 <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy3 <- Malignancy3[, 1:(ncol(Malignancy3)-3)]  
+
+Malignancy3 <- Malignancy3 %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+
+Malignancy3 <- Malignancy3 %>% rename(patients = Mixture)
+
+stats_Malignancy3 <- Malignancy3 %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M3 <- ggplot(stats_Malignancy3, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors) +
+  coord_cartesian(xlim = c(-0.15, 0.6), ylim = c(0, 0.15)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Brucellosis patients with relapse after treatment",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on LM22 Signature Matrix)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M3)
+```
+
+Now Malignancy 4 wich is Lehismaniosis patients
+```{r}
+Malignancy4 <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy4 <- Malignancy4[, 1:(ncol(Malignancy4)-3)]  
+Malignancy4 <- Malignancy4 %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+Malignancy4 <- Malignancy4 %>% rename(patients = Mixture)
+
+stats_Malignancy4 <- Malignancy4 %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M4 <- ggplot(stats_Malignancy4, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors) +
+  coord_cartesian(xlim = c(-0.15, 0.6), ylim = c(0, 0.15)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of patients with Lehismaniosis",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on LM22 Signature Matrix)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M4)
+```
+
+# VdW VS Different conditions
+Starting with Malignancy 1 of Brucellosis patients with complete remission after treatment
+```{r}
+Malignancy1_VdW <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy1_VdW <- Malignancy1_VdW[, 1:(ncol(Malignancy1_VdW)-3)]  
+
+Malignancy1_VdW <- Malignancy1_VdW %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+
+Malignancy1_VdW <- Malignancy1_VdW %>% rename(patients = Mixture)
+
+stats_Malignancy1_VdW <- Malignancy1_VdW %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M1_VdW <- ggplot(stats_Malignancy1_VdW, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors2) +
+  coord_cartesian(xlim = c(-0.03, 0.6), ylim = c(0, 0.35)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Brucellosis patients with complete remission after treatment",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on Van der Wijst Signature Matrix)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M1_VdW)
+```
+
+Now Malignancy 2 wich is Brucellosis patients with reinfection after treatment
+```{r}
+Malignancy2_VdW <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy2_VdW <- Malignancy2_VdW[, 1:(ncol(Malignancy2_VdW)-3)]  
+
+Malignancy2_VdW <- Malignancy2_VdW %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+
+Malignancy2_VdW <- Malignancy2_VdW %>% rename(patients = Mixture)
+
+stats_Malignancy2_VdW <- Malignancy2_VdW %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M2_VdW <- ggplot(stats_Malignancy2_VdW, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors2) +
+  coord_cartesian(xlim = c(-0.03, 0.6), ylim = c(0, 0.35)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Brucellosis patients with reinfection after treatment",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on Van der Wijst Signature Matrix)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M2_VdW)
+```
+
+Now Malignancy 3 wich is Brucellosis patients with relapse after treatment
+```{r}
+Malignancy3_VdW <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy3_VdW <- Malignancy3_VdW[, 1:(ncol(Malignancy3_VdW)-3)]  
+
+Malignancy3_VdW <- Malignancy3_VdW %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+
+Malignancy3_VdW <- Malignancy3_VdW %>% rename(patients = Mixture)
+
+stats_Malignancy3_VdW <- Malignancy3_VdW %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M3_VdW <- ggplot(stats_Malignancy3_VdW, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors2) +
+  coord_cartesian(xlim = c(-0.03, 0.6), ylim = c(0, 0.35)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Brucellosis patients with relapse after treatment",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on Van der Wijst)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M3_VdW)
+```
+
+Now Malignancy 4 wich is Lehismaniosis patients
+```{r}
+Malignancy4_VdW <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy4_VdW <- Malignancy4_VdW[, 1:(ncol(Malignancy4_VdW)-3)]  
+Malignancy4_VdW <- Malignancy4_VdW %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+Malignancy4_VdW <- Malignancy4_VdW %>% rename(patients = Mixture)
+
+stats_Malignancy4_VdW <- Malignancy4_VdW %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M4_VdW <- ggplot(stats_Malignancy4_VdW, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors2) +
+  coord_cartesian(xlim = c(-0.03, 0.6), ylim = c(0, 0.35)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of patients with Leishmaniasis",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on Van der Wijst)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M4_VdW)
+```
+
+# Default SM from ABIS  VS Different conditions
+Malignancy 1
+```{r}
+Malignancy1_ABIS <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy1_ABIS <- Malignancy1_ABIS[, 1:(ncol(Malignancy1_ABIS)-3)]  
+
+Malignancy1_ABIS <- Malignancy1_ABIS %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+
+Malignancy1_ABIS <- Malignancy1_ABIS %>% rename(patients = Mixture)
+
+stats_Malignancy1_ABIS <- Malignancy1_ABIS %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M1_ABIS <- ggplot(stats_Malignancy1_ABIS, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors3) +
+  coord_cartesian(xlim = c(-0.03, 0.6), ylim = c(0, 0.20)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Brucellosis patients with complete remission after treatment",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on ABIS default SM)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M1_ABIS)
+```
+
+Malignancy 2
+```{r}
+Malignancy2_ABIS <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy2_ABIS <- Malignancy2_ABIS[, 1:(ncol(Malignancy2_ABIS)-3)]  
+Malignancy2_ABIS <- Malignancy2_ABIS %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+Malignancy2_ABIS <- Malignancy2_ABIS %>% rename(patients = Mixture)
+
+stats_Malignancy2_ABIS <- Malignancy2_ABIS %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M2_ABIS <- ggplot(stats_Malignancy2_ABIS, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors3) +
+  coord_cartesian(xlim = c(-0.03, 0.6), ylim = c(0, 0.20)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Brucellosis patients with reinfection after treatment",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on ABIS default SM)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M2_ABIS)
+```
+
+Malignancy 3
+```{r}
+Malignancy3_ABIS <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy3_ABIS <- Malignancy3_ABIS[, 1:(ncol(Malignancy3_ABIS)-3)]  
+Malignancy3_ABIS <- Malignancy3_ABIS %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+Malignancy3_ABIS <- Malignancy3_ABIS %>% rename(patients = Mixture)
+
+stats_Malignancy3_ABIS <- Malignancy3_ABIS %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M3_ABIS <- ggplot(stats_Malignancy3_ABIS, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors3) +
+  coord_cartesian(xlim = c(-0.03, 0.6), ylim = c(0, 0.20)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of Brucellosis patients with relapse after treatment",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on ABIS default SM)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M3_ABIS)
+```
+
+Malignancy 4
+```{r}
+Malignancy4_ABIS <- read.csv("CIBERSORTx_Results.csv")
+
+Malignancy4_ABIS <- Malignancy4_ABIS[, 1:(ncol(Malignancy4_ABIS)-3)]  
+Malignancy4_ABIS <- Malignancy4_ABIS %>% pivot_longer(!Mixture, names_to = "cell_types", values_to = "cell_fraction")
+Malignancy4_ABIS <- Malignancy4_ABIS %>% rename(patients = Mixture)
+
+stats_Malignancy4_ABIS <- Malignancy4_ABIS %>%
+  group_by(cell_types) %>%
+  summarise(
+    mean_fraction = mean(cell_fraction, na.rm = TRUE),
+    sd_fraction = sd(cell_fraction, na.rm = TRUE)
+  ) %>%
+  mutate(
+    log2_mean_fraction = log2(mean_fraction + 1),
+    log2_sd_fraction = log2(sd_fraction + 1)
+  )
+
+M4_ABIS <- ggplot(stats_Malignancy4_ABIS, aes(x = log2_mean_fraction, y = log2_sd_fraction, color = cell_types, label = cell_types)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red",linetype = "dashed") +
+  scale_color_manual(name = "Cell Types", values = stackcolors3) +
+  coord_cartesian(xlim = c(-0.03, 0.6), ylim = c(0, 0.20)) +
+  theme_classic() +
+  labs(
+    title = "Cell type representation of patients with Lehismaniosis",
+    x = "Log2(Mean Cell Fraction +1)",
+    y = "Log2(Standard Deviation +1)",
+    caption = "(Based on ABIS default SM)"
+  ) +
+  theme(
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 9),
+    legend.key.size = unit(0.3, "cm"),
+    plot.title = element_text(size = 10)
+  )
+print(M4_ABIS)
+```
+
+# Doing bar plot for Mean cell fractions and for Standard deviation fractions for selected cell types*
+
+*First for LM22 SM*
+```{r}
+d1 <- stats_TM1_LM22.log[stats_TM1_LM22.log$cell_types %in% c(	
+"Neutrophils","T.cells.CD8","NK.cells.resting",	
+"T.cells.CD4.naive","Monocytes", "T.cells.CD4.memory.resting"),c(1,4,5)]
+d1$Condition <- "Healthy"
+
+d2 <- stats_Malignancy1[stats_Malignancy1$cell_types %in% c(	
+"Neutrophils","T.cells.CD8","NK.cells.resting",	
+"T.cells.CD4.naive","Monocytes", "T.cells.CD4.memory.resting"
+),c(1,4,5)]
+d2$Condition <- "Brucellosis patients with complete remission after treatment"
+
+d3 <- stats_Malignancy2[stats_Malignancy2$cell_types %in% c(	
+"Neutrophils","T.cells.CD8","NK.cells.resting",	
+"T.cells.CD4.naive","Monocytes", "T.cells.CD4.memory.resting"),c(1,4,5)]
+d3$Condition <- "Brucellosis patients with reinfection after treatment"
+
+d4 <- stats_Malignancy3[stats_Malignancy3$cell_types %in% c(	
+"Neutrophils","T.cells.CD8","NK.cells.resting",	
+"T.cells.CD4.naive","Monocytes", "T.cells.CD4.memory.resting"),c(1,4,5)]
+d4$Condition <- "Brucellosis patients with relapse after treatment"
+
+d5 <- stats_Malignancy4[stats_Malignancy4$cell_types %in% c(	
+"Neutrophils","T.cells.CD8","NK.cells.resting",	
+"T.cells.CD4.naive","Monocytes", "T.cells.CD4.memory.resting"),c(1,4,5)]
+d5$Condition <- "Patients with Leishmaniasis"
+
+LM22_study <- rbind(d1, d2, d3, d4, d5) 
+colnames(LM22_study)[colnames(LM22_study) == "log2_mean_fraction"] <- "MeanFraction"
+colnames(LM22_study)[colnames(LM22_study) == "cell_types"] <- "CellType"
+
+LM22_study$Condition <- factor(LM22_study$Condition, levels = c(
+  "Healthy",
+  "Brucellosis patients with complete remission after treatment",
+  "Brucellosis patients with reinfection after treatment",
+  "Brucellosis patients with relapse after treatment",
+  "Patients with Leishmaniasis"
+))
+
+s1 <- ggplot(LM22_study, aes(x = CellType, y = MeanFraction, fill = Condition)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Cell type", y = "log2(Mean_Fraction+1)") +
+  theme_minimal() +
+  scale_fill_manual(values = c(
+    "Healthy" = "grey", 
+    "Brucellosis patients with complete remission after treatment" = "green", 
+    "Brucellosis patients with reinfection after treatment" = "darkgreen",
+    "Brucellosis patients with relapse after treatment" = "red",
+    "Patients with Leishmaniasis" = "gold"
+  )) +
+  scale_y_continuous(breaks = seq(0, 0.6, by = 0.05)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(s1)
+```
+Standard deviation values for LM22
+```{r}
+colnames(LM22_study)[colnames(LM22_study) == "log2_sd_fraction"] <- "SDFraction"
+s2 <-ggplot(LM22_study, aes(x = CellType, y = SDFraction, fill = Condition)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Cell type", y = "log2(SD_Fraction+1)") +
+  theme_minimal() +
+    scale_fill_manual(values = c("Healthy" = "grey", 
+                             "Brucellosis patients with complete remission after treatment" = "green", 
+                             "Brucellosis patients with reinfection after treatment" = "darkgreen",
+                             "Brucellosis patients with relapse after treatment" = "red",
+                             "Patients with Leishmaniasis" = "gold")) +
+  scale_y_continuous(breaks = seq(0, 0.2, by = 0.02)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(s2)
+```
+
+*Doing the same for Van der Wijst*
+```{r}
+d6 <- stats_TM1_VdW.log[stats_TM1_VdW.log$cell_types %in% c(	
+"CD8_T", "CD4_T", "CD56dim_NK",	"cMonocyte","Plasma","B"),c(1,4,5)]
+d6$Condition <- "Healthy"
+
+d7 <- stats_Malignancy1_VdW[stats_Malignancy1_VdW$cell_types %in% c(	
+"CD8_T", "CD4_T", "CD56dim_NK",	"cMonocyte","Plasma","B"),c(1,4,5)]
+d7$Condition <- "Brucellosis patients with complete remission after treatment"
+
+d8 <- stats_Malignancy2_VdW[stats_Malignancy2_VdW$cell_types %in% c(	
+"CD8_T", "CD4_T", "CD56dim_NK",	"cMonocyte","Plasma","B"),c(1,4,5)]
+d8$Condition <- "Brucellosis patients with reinfection after treatment"
+
+d9 <- stats_Malignancy3_VdW[stats_Malignancy3_VdW$cell_types %in% c(	
+"CD8_T", "CD4_T", "CD56dim_NK",	"cMonocyte","Plasma","B"),c(1,4,5)]
+d9$Condition <- "Brucellosis patients with relapse after treatment"
+
+d10 <- stats_Malignancy4_VdW[stats_Malignancy4_VdW$cell_types %in% c(	
+"CD8_T", "CD4_T", "CD56dim_NK",	"cMonocyte","Plasma","B"),c(1,4,5)]
+d10$Condition <- "Patients with Leishmaniasis"
+
+VdW_study <- rbind(d6, d7, d8, d9, d10)  
+colnames(VdW_study)[colnames(VdW_study) == "log2_mean_fraction"] <- "MeanFraction"
+colnames(VdW_study)[colnames(VdW_study) == "cell_types"] <- "CellType"
+VdW_study$Condition <- factor(LM22_study$Condition, levels = c(
+  "Healthy",
+  "Brucellosis patients with complete remission after treatment",
+  "Brucellosis patients with reinfection after treatment",
+  "Brucellosis patients with relapse after treatment",
+  "Patients with Leishmaniasis"
+))
+
+s3 <-ggplot(VdW_study, aes(x = CellType, y = MeanFraction, fill = Condition)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Cell type", y = "log2(Mean_Fraction+1)") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Healthy" = "grey", 
+                             "Brucellosis patients with complete remission after treatment" = "green", 
+                             "Brucellosis patients with reinfection after treatment" = "darkgreen",
+                             "Brucellosis patients with relapse after treatment" = "red",
+                             "Patients with Leishmaniasis" = "gold")) +
+  scale_y_continuous(breaks = seq(0, 0.6, by = 0.05)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(s3)
+```
+
+```{r}
+colnames(VdW_study)[colnames(VdW_study) == "log2_sd_fraction"] <- "SDFraction"
+s4 <-ggplot(VdW_study, aes(x = CellType, y = SDFraction, fill = Condition)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Cell type", y = "log2(SD_Fraction+1)") +
+  theme_minimal() +
+    scale_fill_manual(values = c("Healthy" = "grey", 
+                             "Brucellosis patients with complete remission after treatment" = "green", 
+                             "Brucellosis patients with reinfection after treatment" = "darkgreen",
+                             "Brucellosis patients with relapse after treatment" = "red",
+                             "Patients with Leishmaniasis" = "gold")) +
+  scale_y_continuous(breaks = seq(0, 0.4, by = 0.05)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(s4)
+```
+
+*Also for Default SM from ABIS*
+
+Now the bar plot comparision of the Means and Standard deviation to see if there is any difference
+```{r}
+d11 <- stats_TM1_ABIS[stats_TM1_ABIS$cell_types %in% c(	
+"Neutrophils.LD","T.CD8.Memory","T.CD4.Naive",	
+"T.gd.non.Vd2"),c(1,4,5)]
+d11$Condition <- "Healthy"
+
+d12 <- stats_Malignancy1_ABIS[stats_Malignancy1_ABIS$cell_types %in% c(	
+"Neutrophils.LD","T.CD8.Memory","T.CD4.Naive",	
+"T.gd.non.Vd2"),c(1,4,5)]
+d12$Condition <- "Brucellosis patients with complete remission after treatment"
+
+d13 <- stats_Malignancy2_ABIS[stats_Malignancy2_ABIS$cell_types %in% c(	
+"Neutrophils.LD","T.CD8.Memory","T.CD4.Naive",	
+"T.gd.non.Vd2"),c(1,4,5)]
+d13$Condition <- "Brucellosis patients with reinfection after treatment"
+
+d14 <- stats_Malignancy3_ABIS[stats_Malignancy3_ABIS$cell_types %in% c(	
+"Neutrophils.LD","T.CD8.Memory","T.CD4.Naive",	
+"T.gd.non.Vd2"),c(1,4,5)]
+d14$Condition <- "Brucellosis patients with relapse after treatment"
+
+
+d15 <- stats_Malignancy4_ABIS[stats_Malignancy4_ABIS$cell_types %in% c(	
+"Neutrophils.LD","T.CD8.Memory","T.CD4.Naive",	
+"T.gd.non.Vd2"),c(1,4,5)]
+d15$Condition <- "Patients with Lehismaniosis"
+
+ABIS_Monaco_study <- rbind(d11, d12, d13, d14, d15) 
+
+colnames(ABIS_Monaco_study)[colnames(ABIS_Monaco_study) == "log2_mean_fraction"] <- "MeanFraction"
+
+colnames(ABIS_Monaco_study)[colnames(ABIS_Monaco_study) == "cell_types"] <- "CellType"
+
+
+s5 <-ggplot(ABIS_Monaco_study, aes(x = CellType, y = MeanFraction, fill = Condition)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Cell type", y = "log2(Mean_Fraction+1)") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Healthy" = "grey", 
+                             "Brucellosis patients with complete remission after treatment" = "green", 
+                             "Brucellosis patients with reinfection after treatment" = "darkgreen",
+                             "Brucellosis patients with relapse after treatment" = "red",
+                             "Patients with Lehismaniosis" = "gold")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(s5)
+```
+```{r}
+colnames(ABIS_Monaco_study)[colnames(ABIS_Monaco_study) == "log2_sd_fraction"] <- "SDFraction"
+s6 <-ggplot(ABIS_Monaco_study, aes(x = CellType, y = SDFraction, fill = Condition)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Cell type", y = "log2(SD_Fraction+1)") +
+  theme_minimal() +
+    scale_fill_manual(values = c("Healthy" = "grey", 
+                             "Brucellosis patients with complete remission after treatment" = "green", 
+                             "Brucellosis patients with reinfection after treatment" = "darkgreen",
+                             "Brucellosis patients with relapse after treatment" = "red",
+                             "Patients with Lehismaniosis" = "gold")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(s6)
+```
+
+# Calculating the % of difference between healthy CD4 T cells and CD8 T cells compared to different conditions (by Van der Wijst)
+
+```{r}
+# For healthy:
+#CD8+T
+print(stats_TM1_VdW.log[10,"mean_fraction"] *100)
+#CD4+T
+print(stats_TM1_VdW.log[11,"mean_fraction"] *100)
+
+# Brucellosis with (malignancy 1)
+#CD8+T
+print(stats_Malignancy1_VdW[5,"mean_fraction"] *100)
+#CD4+T
+print(stats_Malignancy1_VdW[2,"mean_fraction"] *100)
+
+# Brucellosis with (malignancy 2)
+#CD8+T
+print(stats_Malignancy2_VdW[5,"mean_fraction"] *100)
+#CD4+T
+print(stats_Malignancy2_VdW[2,"mean_fraction"] *100)
+
+# Brucellosis with (malignancy 3)
+#CD8+T
+print(stats_Malignancy3_VdW[5,"mean_fraction"] *100)
+#CD4+T
+print(stats_Malignancy3_VdW[2,"mean_fraction"] *100)
+# Leishmaniasis
+#CD8+T
+print(stats_Malignancy4_VdW[5,"mean_fraction"] *100)
+#CD4+T
+print(stats_Malignancy4_VdW[2,"mean_fraction"] *100)
+```
+
+

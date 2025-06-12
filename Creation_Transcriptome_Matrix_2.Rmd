@@ -1,0 +1,62 @@
+---
+title: "Creation_Transcriptome_Matrix_2"
+output: html_notebook
+---
+This document shows the pipeline followed to create Transcriptome Matrix 2 (TM2). Using datasets 1, 5 and 6.
+
+# Load necessary libraries for data manipulation
+```{r}
+library(purrr)
+library(tidyr)
+library(dplyr)
+library(tibble)
+```
+
+```{r}
+data1 <- read.csv("Database 1.csv")
+data5 <- read.csv("Database 5.csv")
+data6 <- read.csv("Database 6.csv")
+
+colnames(data1)[1] <- "Gene_ID"
+colnames(data5)[1] <- "Gene_ID"
+colnames(data6)[1] <- "Gene_ID"
+
+databases <- list(data1, data5, data6)
+
+Transcriptome_Matrix2 <- reduce(databases, function(x, y) merge(x, y, by = "Gene_ID", all = TRUE))
+Transcriptome_Matrix2[is.na(Transcriptome_Matrix2)] <- 0
+
+Biomartinfo <- read.csv("/Users/gemmamoles/Desktop/SampleFacts/2025/Bioinformatics/RNA-seq Bioinformatics/Getting to know the data/Transcriptome dataset/Biomart_information.txt", sep="\t", header=TRUE)
+
+# Filtering some genes
+rownames(Transcriptome_Matrix2) <- Transcriptome_Matrix2$Gene_ID
+Transcriptome_Matrix2$Gene_ID <- NULL
+Transcriptome_Matrix2 <- Transcriptome_Matrix2[!rowSums(Transcriptome_Matrix2) < 2,]
+Transcriptome_Matrix2 <- rownames_to_column(Transcriptome_Matrix2, var = "Gene symbol")
+
+
+Transcriptome_Matrix2 <- Transcriptome_Matrix2 %>%
+  left_join(Biomartinfo %>%
+              select(Gene.stable.ID, Gene.name) %>%
+              distinct(Gene.stable.ID, .keep_all = TRUE),
+            by = c("Gene symbol"= "Gene.stable.ID"))
+
+# Avoiding errors with gene.names
+Transcriptome_Matrix2 <- Transcriptome_Matrix2 %>%
+  filter(Gene.name != "" & !is.na(Gene.name))
+Transcriptome_Matrix2$Gene.name <- make.unique(Transcriptome_Matrix2$Gene.name, sep = "-")
+row.names(Transcriptome_Matrix2) <- Transcriptome_Matrix2$Gene.name
+Transcriptome_Matrix2 <- Transcriptome_Matrix2[,-1 ] # Deleting gene symbol column from the matrix
+Transcriptome_Matrix2 <- Transcriptome_Matrix2[,-806] # Deleting Gene.name column from the matrix
+Transcriptome_Matrix2 <- rownames_to_column(Transcriptome_Matrix2,var="Gene Symbol") # Rowname is going to be a column inside the matrix
+Transcriptome_Matrix2 <- rbind(colnames(Transcriptome_Matrix2), Transcriptome_Matrix2) # Colname is going to be a row inside the matrix
+colnames(Transcriptome_Matrix2)<-NULL
+
+# Only taking 50 samples
+Transcriptome_Matrix2_filtered <- Transcriptome_Matrix2[, c(1:49, ncol(Transcriptome_Matrix2))]
+
+
+write.table(Transcriptome_Matrix2_filtered, "Transcriptome_Matrix2.txt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+```
+
+

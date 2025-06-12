@@ -2,7 +2,7 @@
 title: "Creation_Transcriptome_Matrix_1"
 output: html_notebook
 ---
-This document shows the pipeline followed to create Transcriptome Matrix 1 (TM1). Using datasets 2,3 and 4.
+This document shows the pipeline followed to create Transcriptome Matrix 1 (TM1). Using datasets 2 and 3 
 
 # Load necessary libraries for data manipulation
 ```{r}
@@ -42,7 +42,7 @@ Transcriptome_datas2and3 <-rownames_to_column(Transcriptome_datas2and3,var="Gene
 Transcriptome_datas2and3 <- rbind(colnames(Transcriptome_datas2and3), Transcriptome_datas2and3) # Colname is going to be a row inside the matrix
 colnames(Transcriptome_datas2and3)<-NULL
 
-write.table(Transcriptome_datas2and3, "Transcriptome Matrix(Data2 and 3).txt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(Transcriptome_datas2and3, "Transcriptome_Matrix1.txt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
 
 ```
 

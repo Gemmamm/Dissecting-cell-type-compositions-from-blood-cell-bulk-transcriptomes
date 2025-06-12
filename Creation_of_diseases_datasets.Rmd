@@ -1,0 +1,209 @@
+---
+title: "Creation_of_diseases_datasets"
+output: html_notebook
+---
+Document following the creation of the four different conditions
+
+# Creating Four small datasets:
+- Brucellosis (complete remission after treatment)  Name:Malignancy1
+- Brucellosis (reinfection after treatment)         Name:Malignancy2
+- Brucellosis (relapse after treatment)             Name:Malignancy3
+- Lehismaniosis (condition not aviable)             Name:Malignancy4
+
+# Libraries needed:
+```{r}
+library(Seurat)
+library(dplyr)
+library(tibble)
+```
+
+# Creating the datasets
+```{r}
+Brucellosis_ind <- c() 
+Brucellosis_cond <- c() 
+Brucellosis_stage <- c() 
+
+for (a in 1:nrow(database_3_experimentdesign)) {
+  if (grepl("brucellosis", database_3_experimentdesign[a, "Sample.Characteristic.disease."])) {
+    Brucellosis_ind <- c(Brucellosis_ind, database_3_experimentdesign[a, "Run"])
+    Brucellosis_cond <- c(Brucellosis_cond, database_3_experimentdesign[a, "Sample.Characteristic.clinical.information."])
+    Brucellosis_stage <- c(Brucellosis_stage, database_3_experimentdesign[a, "Sample.Characteristic.disease.staging."])
+  }
+}
+print(Brucellosis_ind)
+print(Brucellosis_cond)
+
+Brucellosis_patients <- data.frame(
+  IndividualID = Brucellosis_ind,
+  Condition = Brucellosis_cond,
+  Stage = Brucellosis_stage
+)
+```
+
+*Malignancy 1*
+```{r}
+Malignancy1 <- data.frame("Gene Symbol"=rawdatabase_3$Gene.Name)
+for (a in 1:nrow(Brucellosis_patients)) { 
+  patient <- Brucellosis_patients$IndividualID[a]
+  matching_col <- which(colnames(rawdatabase_3) == patient) # This gives the number of column that the names are the same, if there isn't any match, gives 0
+  condition <- Brucellosis_patients$Condition[a]
+  if (condition == "complete remission after treatment" && length(matching_col) == 1) {  #
+    Malignancy1[[patient]] <- rawdatabase_3[, matching_col]  # Add each column with its information
+  }
+}
+```
+
+*Malignancy 2*
+```{r}
+Malignancy2 <- data.frame("Gene Symbol"=rawdatabase_3$Gene.Name)
+for (a in 1:nrow(Brucellosis_patients)) { 
+  patient <- Brucellosis_patients$IndividualID[a]
+  matching_col <- which(colnames(rawdatabase_3) == patient) # This gives the number of column that the names are the same, if there isn't any match, gives 0
+  condition <- Brucellosis_patients$Condition[a]
+  if (condition == "reinfection after treatment" && length(matching_col) == 1) {  #
+    Malignancy2[[patient]] <- rawdatabase_3[, matching_col]  # Add each column with its information
+  }
+}
+```
+
+*Malignancy 3*
+```{r}
+Malignancy3 <- data.frame("Gene Symbol"=rawdatabase_3$Gene.Name)
+for (a in 1:nrow(Brucellosis_patients)) { 
+  patient <- Brucellosis_patients$IndividualID[a]
+  matching_col <- which(colnames(rawdatabase_3) == patient) # This gives the number of column that the names are the same, if there isn't any match, gives 0
+  condition <- Brucellosis_patients$Condition[a]
+  if (condition == "relapse after treatment" && length(matching_col) == 1) {  #
+    Malignancy3[[patient]] <- rawdatabase_3[, matching_col]  # Add each column with its information
+  }
+}
+```
+
+*Malignancy 4*
+```{r}
+Leishmaniasis_ind <- c() 
+
+for (a in 1:nrow(database_3_experimentdesign)) {
+  if (grepl("Leishmaniasis", database_3_experimentdesign[a, "Sample.Characteristic.disease."])) {
+    Leishmaniasis_ind <- c(Leishmaniasis_ind, database_3_experimentdesign[a, "Run"])
+  }
+}
+print(Leishmaniasis_ind)
+
+Malignancy4 <- data.frame("Gene Symbol"=rawdatabase_3$Gene.Name)
+for (a in 1:length(Leishmaniasis_ind)) { # Using length instead of ncol, as it isn't a data frame.
+  patient <- Leishmaniasis_ind[a]
+  matching_col <- which(colnames(rawdatabase_3) == patient) # This gives the number of column that the names are the same, if there isn't any match, gives 0
+  if (length(matching_col) == 1) {  #
+    Malignancy4[[patient]] <- rawdatabase_3[, matching_col]  # Add each column with its information
+  }
+}
+```
+
+
+# Calculating TPM
+```{r}
+TPM_calculator2 <- function(database,MANE) {
+  
+  for (c in 1:ncol(database)) {
+    for(r in 1:nrow(database)) {
+      gene_name <- rownames(database)[r]
+      row_number <- match(gene_name, MANE$Gene.name)
+      RPKpergene <- database[r,c]/(MANE[row_number,"MANE_length"]/1000)
+      database[r,c] <- RPKpergene
+    }  
+  }
+
+  database <- na.omit(database)
+  sum_RPKs_per_sample <- colSums(database)
+  database <- sweep(database, 2, sum_RPKs_per_sample, "/") * 1e6
+  print(colSums(database))
+  database<- round(database, 2)
+  return(database)
+}
+MANE <- way3_MANE_data_select_transcript_length
+MANE <- MANE %>%
+  left_join(
+    select(Biomart_information, Transcript.stable.ID, Gene.name),
+    by = c("Transcript_ID" = "Transcript.stable.ID")
+  )
+
+# Malignancy1 TPMs
+Malignancy1 <- Malignancy1 %>%
+  filter(!is.na(Gene.Symbol) & trimws(Gene.Symbol) != "") %>%
+  group_by(Gene.Symbol) %>%
+  slice_max(order_by = rowSums(across(where(is.numeric), ~ . > 1)), n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  distinct(Gene.Symbol, .keep_all = TRUE)
+
+Malignancy1 <- as.data.frame(Malignancy1)
+rownames(Malignancy1) <- Malignancy1$Gene.Symbol
+Malignancy1$Gene.Symbol <- NULL
+Malignancy1 <- TPM_calculator2(Malignancy1, MANE)
+
+# Malignancy 2 TPMs
+Malignancy2 <- Malignancy2 %>%
+  filter(!is.na(Gene.Symbol) & trimws(Gene.Symbol) != "") %>%
+  group_by(Gene.Symbol) %>%
+  slice_max(order_by = rowSums(across(where(is.numeric), ~ . > 1)), n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  distinct(Gene.Symbol, .keep_all = TRUE)
+
+Malignancy2 <- as.data.frame(Malignancy2)
+rownames(Malignancy2) <- Malignancy2$Gene.Symbol
+Malignancy2$Gene.Symbol <- NULL
+Malignancy2 <- TPM_calculator2(Malignancy2, MANE)
+
+# Malignancy 3 TPMs
+Malignancy3 <- Malignancy3 %>%
+  filter(!is.na(Gene.Symbol) & trimws(Gene.Symbol) != "") %>%
+  group_by(Gene.Symbol) %>%
+  slice_max(order_by = rowSums(across(where(is.numeric), ~ . > 1)), n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  distinct(Gene.Symbol, .keep_all = TRUE)
+
+Malignancy3 <- as.data.frame(Malignancy3)
+rownames(Malignancy3) <- Malignancy3$Gene.Symbol
+Malignancy3$Gene.Symbol <- NULL
+Malignancy3 <- TPM_calculator2(Malignancy3, MANE)
+
+
+# Malignancy 4 TPMs
+Malignancy4 <- Malignancy4 %>%
+  filter(!is.na(Gene.Symbol) & trimws(Gene.Symbol) != "") %>%
+  group_by(Gene.Symbol) %>%
+  slice_max(order_by = rowSums(across(where(is.numeric), ~ . > 1)), n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  distinct(Gene.Symbol, .keep_all = TRUE)
+
+Malignancy4 <- as.data.frame(Malignancy4)
+rownames(Malignancy4) <- Malignancy4$Gene.Symbol
+Malignancy4$Gene.Symbol <- NULL
+Malignancy4 <- TPM_calculator2(Malignancy4, MANE)
+```
+
+
+# Preparing the datasets for CIBERSORTx
+```{r}
+Malignancy1 <-rownames_to_column(Malignancy1,var="Gene Symbol") 
+Malignancy1 <- rbind(colnames(Malignancy1), Malignancy1) 
+colnames(Malignancy1)<-NULL
+
+Malignancy2 <-rownames_to_column(Malignancy2,var="Gene Symbol") 
+Malignancy2 <- rbind(colnames(Malignancy2), Malignancy2) 
+colnames(Malignancy2)<-NULL
+
+Malignancy3 <-rownames_to_column(Malignancy3,var="Gene Symbol") 
+Malignancy3 <- rbind(colnames(Malignancy3), Malignancy3) 
+colnames(Malignancy3)<-NULL
+
+Malignancy4 <-rownames_to_column(Malignancy4,var="Gene Symbol") 
+Malignancy4 <- rbind(colnames(Malignancy4), Malignancy4) 
+colnames(Malignancy4)<-NULL
+
+write.table(Malignancy1, "Malignancy_1.txt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(Malignancy2, "Malignancy_2.txt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(Malignancy3, "Malignancy_3.txt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(Malignancy4, "Malignancy_4.txt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+```
+

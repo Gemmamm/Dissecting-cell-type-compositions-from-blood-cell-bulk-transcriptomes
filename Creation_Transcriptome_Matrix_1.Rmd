@@ -1,0 +1,48 @@
+---
+title: "Creation_Transcriptome_Matrix_1"
+output: html_notebook
+---
+This document shows the pipeline followed to create Transcriptome Matrix 1 (TM1). Using datasets 2,3 and 4.
+
+# Load necessary libraries for data manipulation
+```{r}
+library(purrr)
+library(tidyr)
+library(dplyr)
+library(tibble)
+```
+
+
+```{r}
+# Load the TPM datasets previously created for Database 2 and Database 3
+data2 <-read.csv("InputData/Database 2.csv",row.names = 1)
+data3 <-read.csv("InputData/Database 3.csv",row.names = 1)
+
+# Combine the two datasets by gene ID, keeping all genes (full outer join)
+databases <- list(data2, data3)
+Transcriptome_datas2and3 <- reduce(databases, function(x, y) merge(x, y, by = "Gene_ID", all = TRUE))
+
+# Filter genes to keep only those with total TPM (across samples) >= 2 to remove low/no expression genes
+Transcriptome_datas2and3 <- Transcriptome_datas2and3[rowSums(Transcriptome_datas2and3[, -1]) >= 2,]
+
+# Join with Biomart annotation to get gene names
+Transcriptome_datas2and3<- Transcriptome_datas2and3 %>%
+  left_join(Biomartinfo %>%
+              select(Gene.stable.ID, Gene.name) %>%
+              distinct(Gene.stable.ID, .keep_all = TRUE),
+            by = c("Gene_ID"= "Gene.stable.ID"))
+# Avoiding errors with gene.names
+Transcriptome_datas2and3 <- Transcriptome_datas2and3 %>%
+  filter(Gene.name != "" & !is.na(Gene.name))
+Transcriptome_datas2and3$Gene.name <- make.unique(Transcriptome_datas2and3$Gene.name, sep = "-")
+row.names(Transcriptome_datas2and3) <- Transcriptome_datas2and3$Gene.name
+Transcriptome_datas2and3 <- Transcriptome_datas2and3[,-1 ] # Deleting gene ID column from the matrix
+Transcriptome_datas2and3 <- Transcriptome_datas2and3[,-56] # Deleting Gene.name column from the matrix
+Transcriptome_datas2and3 <-rownames_to_column(Transcriptome_datas2and3,var="Gene Symbol") # Rowname is going to be a column inside the matrix
+Transcriptome_datas2and3 <- rbind(colnames(Transcriptome_datas2and3), Transcriptome_datas2and3) # Colname is going to be a row inside the matrix
+colnames(Transcriptome_datas2and3)<-NULL
+
+write.table(Transcriptome_datas2and3, "Transcriptome Matrix(Data2 and 3).txt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+```
+
